@@ -1,4 +1,5 @@
 import io
+import os
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
@@ -7,11 +8,13 @@ from pipeline import load_model, predict_and_explain, simulate_district_screenin
 
 app = FastAPI(title="DRCare / DRISHTI API")
 
-# Allows your Next.js frontend to call this API from the browser.
-# Once deployed, you can replace "*" with your actual frontend URL for tighter security.
+# ALLOWED_ORIGINS: comma-separated list of frontend URLs, e.g.
+# "https://drcare.vercel.app,https://drcare-git-main.vercel.app"
+# Defaults to "*" (any origin) so the app still works before the frontend URL is known.
+_allowed_origins = os.environ.get("ALLOWED_ORIGINS", "*")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"] if _allowed_origins == "*" else _allowed_origins.split(","),
     allow_methods=["*"],
     allow_headers=["*"],
 )
