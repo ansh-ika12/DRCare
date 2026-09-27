@@ -2,26 +2,34 @@
 
 import { useState, useRef } from 'react'
 
-// Placeholder — replace this with a real call to your inference API,
-// e.g. POST the file to `/api/screen` and return its JSON response
-// in this same shape: { quality, grade, referral }
-async function runScreeningMock(file) {
-  await new Promise((resolve) => setTimeout(resolve, 1800))
+async function runScreening(file) {
+  const formData = new FormData()
+  formData.append('file', file)
 
-  const grade = Math.floor(Math.random() * 5) // 0-4
-  const refer = grade >= 2
+  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/screen`, {
+    method: 'POST',
+    body: formData,
+  })
+
+  if (!res.ok) {
+    throw new Error('Screening request failed')
+  }
+
+  const data = await res.json()
 
   return {
-    quality: { pass: true, message: 'Image quality: Pass' },
-    grade: { value: grade, confidence: (85 + Math.random() * 10).toFixed(1) },
-    referral: refer ? 'Refer to Ophthalmologist' : 'Routine',
+    quality: { pass: data.quality_ok, message: data.quality_message },
+    grade: data.quality_ok ? { value: data.grade, confidence: data.confidence } : null,
+    referral: data.quality_ok ? data.referral_text : null,
+    structureImage: data.structure_overlay ? `data:image/png;base64,${data.structure_overlay}` : null,
+    gradcamImage: data.gradcam_overlay ? `data:image/png;base64,${data.gradcam_overlay}` : null,
   }
 }
 
 export default function Screening() {
   const [file, setFile] = useState(null)
   const [previewUrl, setPreviewUrl] = useState(null)
-  const [status, setStatus] = useState('idle') // idle | loading | done
+  const [status, setStatus] = useState('idle') // idle | loading | done | error
   const [result, setResult] = useState(null)
   const [dragActive, setDragActive] = useState(false)
   const inputRef = useRef(null)
@@ -43,9 +51,14 @@ export default function Screening() {
   const handleRun = async () => {
     if (!file) return
     setStatus('loading')
-    const output = await runScreeningMock(file)
-    setResult(output)
-    setStatus('done')
+    try {
+      const output = await runScreening(file)
+      setResult(output)
+      setStatus('done')
+    } catch (err) {
+      setResult(null)
+      setStatus('error')
+    }
   }
 
   const handleReset = () => {
@@ -126,44 +139,61 @@ export default function Screening() {
             </div>
           )}
 
+          {/* Error state */}
+          {status === 'error' && (
+            <div className="mt-10 text-center">
+              <p className="text-red-600 font-semibold">Something went wrong reaching the screening service.</p>
+              <p className="text-sm text-slate-500 mt-1">Please check your connection and try again.</p>
+            </div>
+          )}
+
           {/* Results */}
           {status === 'done' && result && (
             <div className="mt-10">
-              {/* Row 1: text outputs */}
-              <div className="grid md:grid-cols-3 gap-5 mb-6">
-                <div className="bg-slate-50 rounded-2xl p-6">
+              {!result.quality.pass ? (
+                <div className="bg-yellow-50 rounded-2xl p-6 text-center">
                   <p className="text-xs uppercase tracking-wide text-slate-400 mb-2">Quality Check</p>
                   <p className="font-heading font-bold text-navy">{result.quality.message}</p>
                 </div>
-                <div className="bg-slate-50 rounded-2xl p-6">
-                  <p className="text-xs uppercase tracking-wide text-slate-400 mb-2">DR Grade</p>
-                  <p className="font-heading font-bold text-navy">
-                    Grade {result.grade.value} · {result.grade.confidence}%
-                  </p>
-                </div>
-                <div className={`rounded-2xl p-6 ${result.referral === 'Refer to Ophthalmologist' ? 'bg-red-50' : 'bg-green-50'}`}>
-                  <p className="text-xs uppercase tracking-wide text-slate-400 mb-2">Referral Decision</p>
-                  <p className={`font-heading font-bold ${result.referral === 'Refer to Ophthalmologist' ? 'text-red-600' : 'text-green-600'}`}>
-                    {result.referral}
-                  </p>
-                </div>
-              </div>
+              ) : (
+                <>
+                  {/* Row 1: text outputs */}
+                  <div className="grid md:grid-cols-3 gap-5 mb-6">
+                    <div className="bg-slate-50 rounded-2xl p-6">
+                      <p className="text-xs uppercase tracking-wide text-slate-400 mb-2">Quality Check</p>
+                      <p className="font-heading font-bold text-navy">{result.quality.message}</p>
+                    </div>
+                    <div className="bg-slate-50 rounded-2xl p-6">
+                      <p className="text-xs uppercase tracking-wide text-slate-400 mb-2">DR Grade</p>
+                      <p className="font-heading font-bold text-navy">
+                        Grade {result.grade.value} · {result.grade.confidence}%
+                      </p>
+                    </div>
+                    <div className={`rounded-2xl p-6 ${result.referral === 'REFER TO OPHTHALMOLOGIST' ? 'bg-red-50' : 'bg-green-50'}`}>
+                      <p className="text-xs uppercase tracking-wide text-slate-400 mb-2">Referral Decision</p>
+                      <p className={`font-heading font-bold ${result.referral === 'REFER TO OPHTHALMOLOGIST' ? 'text-red-600' : 'text-green-600'}`}>
+                        {result.referral}
+                      </p>
+                    </div>
+                  </div>
 
-              {/* Row 2: image outputs */}
-              <div className="grid md:grid-cols-2 gap-5">
-                <div className="bg-slate-50 rounded-2xl p-4">
-                  <p className="text-xs uppercase tracking-wide text-slate-400 mb-3 px-2">Structure Visualization</p>
-                  <img src={previewUrl} alt="Structure visualization output" className="w-full rounded-xl" />
-                </div>
-                <div className="bg-slate-50 rounded-2xl p-4">
-                  <p className="text-xs uppercase tracking-wide text-slate-400 mb-3 px-2">Grad-CAM</p>
-                  <img src={previewUrl} alt="Grad-CAM output" className="w-full rounded-xl" />
-                </div>
-              </div>
-
-              <p className="text-center text-xs text-slate-400 mt-6">
-                Demo output: connect this section to your inference API to show the real structure map and Grad-CAM heatmap.
-              </p>
+                  {/* Row 2: image outputs */}
+                  <div className="grid md:grid-cols-2 gap-5">
+                    <div className="bg-slate-50 rounded-2xl p-4">
+                      <p className="text-xs uppercase tracking-wide text-slate-400 mb-3 px-2">Structure Visualization</p>
+                      {result.structureImage && (
+                        <img src={result.structureImage} alt="Structure visualization output" className="w-full rounded-xl" />
+                      )}
+                    </div>
+                    <div className="bg-slate-50 rounded-2xl p-4">
+                      <p className="text-xs uppercase tracking-wide text-slate-400 mb-3 px-2">Grad-CAM</p>
+                      {result.gradcamImage && (
+                        <img src={result.gradcamImage} alt="Grad-CAM output" className="w-full rounded-xl" />
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>
